@@ -1,0 +1,16 @@
+Return-Path: <newsletter@training.example>
+From: Security Awareness <newsletter@training.example>
+Reply-To: Security Awareness <newsletter@training.example>
+To: analyst@example.org
+Subject: September security awareness newsletter
+Date: Mon, 21 Sep 2026 11:30:00 -0400
+Message-ID: <demo-benign-003@example.org>
+Authentication-Results: mx.example.org; spf=pass smtp.mailfrom=training.example;
+ dkim=pass header.d=training.example; dmarc=pass header.from=training.example
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Read this month's security awareness newsletter:
+https://training.example/newsletters/september
+
+This is a fictional, sanitized training message.

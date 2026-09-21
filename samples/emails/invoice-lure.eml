@@ -1,0 +1,16 @@
+Return-Path: <billing@vendor-payments.example>
+From: Accounts Payable <invoices@trusted-vendor.example>
+Reply-To: Payment Desk <billing@vendor-payments.example>
+To: analyst@example.org
+Subject: Updated invoice requires approval
+Date: Mon, 21 Sep 2026 10:20:00 -0400
+Message-ID: <demo-suspicious-002@example.org>
+Authentication-Results: mx.example.org; spf=pass smtp.mailfrom=vendor-payments.example;
+ dkim=pass header.d=vendor-payments.example; dmarc=pass header.from=trusted-vendor.example
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Please review the updated invoice before the end of the day:
+https://invoice-review.example/document/48321
+
+This is a fictional, sanitized training message.

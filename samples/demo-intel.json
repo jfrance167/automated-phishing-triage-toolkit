@@ -1,0 +1,16 @@
+{
+  "domains": {
+    "account-security.example": {"status": "found", "malicious": 9, "suspicious": 2, "harmless": 1, "undetected": 20, "reputation": -12},
+    "mailer-example.net": {"status": "found", "malicious": 4, "suspicious": 1, "harmless": 2, "undetected": 25, "reputation": -5},
+    "microsoft.example": {"status": "not_found"},
+    "trusted-vendor.example": {"status": "found", "malicious": 0, "suspicious": 0, "harmless": 18, "undetected": 14, "reputation": 4},
+    "vendor-payments.example": {"status": "found", "malicious": 0, "suspicious": 1, "harmless": 4, "undetected": 27, "reputation": -1},
+    "invoice-review.example": {"status": "found", "malicious": 0, "suspicious": 0, "harmless": 6, "undetected": 26, "reputation": 0},
+    "training.example": {"status": "found", "malicious": 0, "suspicious": 0, "harmless": 24, "undetected": 8, "reputation": 12}
+  },
+  "urls": {
+    "http://198.51.100.42/login?tenant=example": {"status": "found", "malicious": 14, "suspicious": 3, "harmless": 0, "undetected": 15, "reputation": -20},
+    "https://invoice-review.example/document/48321": {"status": "found", "malicious": 0, "suspicious": 1, "harmless": 3, "undetected": 27, "reputation": -2},
+    "https://training.example/newsletters/september": {"status": "found", "malicious": 0, "suspicious": 0, "harmless": 22, "undetected": 10, "reputation": 8}
+  }
+}
