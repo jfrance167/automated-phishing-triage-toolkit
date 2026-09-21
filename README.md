@@ -19,7 +19,7 @@ A dependency-free Python CLI that turns a raw email (`.eml`) into an analyst-fri
 Python 3.10+ is required. No third-party packages are needed.
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/automated-phishing-triage-toolkit.git
+git clone https://github.com/jfrance167/automated-phishing-triage-toolkit.git
 cd automated-phishing-triage-toolkit
 
 # Parse and score locally (no network requests)
