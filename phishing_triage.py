@@ -238,8 +238,13 @@ class VirusTotalClient:
             f"{self.base_url}/{endpoint}",
             headers={"x-apikey": self.api_key, "Accept": "application/json"},
         )
+        destination = urllib.parse.urlsplit(request.full_url)
+        if destination.scheme != "https" or destination.hostname != "www.virustotal.com":
+            raise ValueError("VirusTotal requests require the approved HTTPS endpoint")
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(  # nosec B310 -- destination validated above
+                request, timeout=self.timeout
+            ) as response:
                 payload = json.load(response)
             attrs = payload.get("data", {}).get("attributes", {})
             stats = attrs.get("last_analysis_stats", {})
