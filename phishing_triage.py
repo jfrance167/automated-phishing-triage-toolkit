@@ -172,6 +172,7 @@ def extract_urls(plain_parts: Iterable[str], html_parts: Iterable[str]) -> list[
         try:
             parser.feed(markup)
         except Exception:
+            # Malformed HTML must not prevent triage of other message content.
             pass
         candidates.extend(parser.links)
     urls = {url for candidate in candidates if (url := normalize_url(candidate))}
@@ -338,9 +339,12 @@ def analyze(report: TriageReport) -> None:
         host = parsed.hostname or ""
         try:
             ipaddress.ip_address(host)
-            add_finding(report, "medium", 20, "A URL uses a raw IP address instead of a domain.")
         except ValueError:
-            pass
+            is_ip_address = False
+        else:
+            is_ip_address = True
+        if is_ip_address:
+            add_finding(report, "medium", 20, "A URL uses a raw IP address instead of a domain.")
         if host.startswith("xn--") or ".xn--" in host:
             add_finding(report, "medium", 15, "A URL contains an internationalized (Punycode) domain.")
         if parsed.username is not None:
