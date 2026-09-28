@@ -10,6 +10,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ParsingTests(unittest.TestCase):
+    def test_received_spf_status_is_parsed_without_spf_equals_token(self):
+        for status in ("fail", "pass"):
+            with self.subTest(status=status):
+                raw = (
+                    "Received-SPF: " + status + " (sender SPF authorized) "
+                    "identity=mailfrom; client-ip=192.0.2.1\n\n"
+                ).encode()
+                message = BytesParser(policy=policy.default).parsebytes(raw)
+                self.assertEqual(triage.parse_authentication(message)["spf"], status)
+
+    def test_authentication_results_spf_takes_precedence_over_received_spf(self):
+        raw = (
+            "Authentication-Results: mx.example; spf=pass smtp.mailfrom=example.org\n"
+            "Received-SPF: fail (sender SPF unauthorized) identity=mailfrom; "
+            "client-ip=192.0.2.1\n\n"
+        ).encode()
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        self.assertEqual(triage.parse_authentication(message)["spf"], "pass")
+
     def test_extracts_headers_authentication_and_urls(self):
         report = triage.parse_email(ROOT / "samples/emails/credential-harvest.eml")
         self.assertEqual(report.authentication, {"spf": "fail", "dkim": "fail", "dmarc": "fail"})

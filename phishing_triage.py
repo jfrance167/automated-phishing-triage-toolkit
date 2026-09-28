@@ -28,6 +28,9 @@ from typing import Any, Iterable
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 AUTH_RE = re.compile(r"\b(spf|dkim|dmarc)\s*=\s*([a-z]+)", re.IGNORECASE)
+RECEIVED_SPF_RESULT_RE = re.compile(
+    r"^\s*(pass|fail|softfail|neutral|none|temperror|permerror)\b", re.IGNORECASE
+)
 TRAILING_URL_PUNCTUATION = ".,;:!?)]}"
 VERDICTS = ("likely_benign", "suspicious", "malicious")
 
@@ -181,12 +184,20 @@ def extract_urls(plain_parts: Iterable[str], html_parts: Iterable[str]) -> list[
 
 def parse_authentication(message: Any) -> dict[str, str]:
     results = {"spf": "unknown", "dkim": "unknown", "dmarc": "unknown"}
-    values = message.get_all("Authentication-Results", []) + message.get_all(
-        "Received-SPF", []
-    )
-    joined = " ".join(str(value) for value in values)
-    for mechanism, outcome in AUTH_RE.findall(joined):
-        results[mechanism.lower()] = outcome.lower()
+    # Authentication-Results carries per-mechanism results. Use its SPF
+    # result when present, falling back to Received-SPF's leading status token.
+    for value in message.get_all("Authentication-Results", []):
+        for mechanism, outcome in AUTH_RE.findall(str(value)):
+            mechanism = mechanism.lower()
+            if results[mechanism] == "unknown" or mechanism != "spf":
+                results[mechanism] = outcome.lower()
+
+    if results["spf"] == "unknown":
+        for value in message.get_all("Received-SPF", []):
+            match = RECEIVED_SPF_RESULT_RE.match(str(value))
+            if match:
+                results["spf"] = match.group(1).lower()
+                break
     return results
 
 
