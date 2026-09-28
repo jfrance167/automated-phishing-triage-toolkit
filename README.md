@@ -4,6 +4,23 @@ A dependency-free Python CLI that turns a raw email (`.eml`) into an analyst-fri
 
 > This is a portfolio and analyst-assistance tool, not an autonomous email security gateway. An analyst should validate every verdict in context.
 
+## Synthetic terminal example
+
+Run the included credential-harvest message with the offline, fictional intelligence fixture. This performs no network lookups. The excerpt below is from the real CLI output; message identifiers and indicators are omitted.
+
+```text
+$ python phishing_triage.py samples/emails/credential-harvest.eml --intel-file samples/demo-intel.json
+# Phishing Triage Summary
+- **Verdict:** MALICIOUS
+- **Risk score:** 100/100
+## Authentication
+| Control | Result |
+|---|---|
+| SPF | FAIL |
+| DKIM | FAIL |
+| DMARC | FAIL |
+```
+
 ## What it demonstrates
 
 - RFC 5322 and MIME parsing with Python's standard library
