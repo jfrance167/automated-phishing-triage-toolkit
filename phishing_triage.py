@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -33,6 +34,7 @@ RECEIVED_SPF_RESULT_RE = re.compile(
 )
 TRAILING_URL_PUNCTUATION = ".,;:!?)]}"
 VERDICTS = ("likely_benign", "suspicious", "malicious")
+MAX_EMAIL_BYTES = 25 * 1024 * 1024
 
 
 class LinkParser(HTMLParser):
@@ -202,7 +204,11 @@ def parse_authentication(message: Any) -> dict[str, str]:
 
 
 def parse_email(path: Path) -> TriageReport:
-    message = BytesParser(policy=policy.default).parsebytes(path.read_bytes())
+    with path.open("rb") as source:
+        raw = source.read(MAX_EMAIL_BYTES + 1)
+    if len(raw) > MAX_EMAIL_BYTES:
+        raise ValueError(f"email exceeds the {MAX_EMAIL_BYTES // (1024 * 1024)} MiB input limit")
+    message = BytesParser(policy=policy.default).parsebytes(raw)
     plain, html_parts = extract_body_parts(message)
     urls = extract_urls(plain, html_parts)
     header_values = {
@@ -240,10 +246,17 @@ def parse_email(path: Path) -> TriageReport:
 class VirusTotalClient:
     base_url = "https://www.virustotal.com/api/v3"
 
-    def __init__(self, api_key: str, timeout: float = 15.0, delay: float = 0.0) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        timeout: float = 15.0,
+        delay: float = 0.0,
+        allow_url_disclosure: bool = False,
+    ) -> None:
         self.api_key = api_key
         self.timeout = timeout
         self.delay = delay
+        self.allow_url_disclosure = allow_url_disclosure
 
     def _get(self, endpoint: str, indicator: str, kind: str) -> IntelResult:
         request = urllib.request.Request(
@@ -291,6 +304,8 @@ class VirusTotalClient:
         return self._get(f"domains/{encoded}", domain, "domain")
 
     def lookup_url(self, url: str) -> IntelResult:
+        if not self.allow_url_disclosure:
+            raise ValueError("complete URL disclosure was not approved for this client")
         url_id = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
         return self._get(f"urls/{url_id}", url, "url")
 
@@ -398,8 +413,21 @@ def analyze(report: TriageReport) -> None:
         ]
 
 
-def defang(value: str) -> str:
-    return value.replace("https://", "hxxps://").replace("http://", "hxxp://").replace(".", "[.]")
+def normalize_display_text(value: object) -> str:
+    text = "".join(
+        " " if unicodedata.category(char) in {"Cc", "Cf", "Zl", "Zp"} else char
+        for char in str(value)
+    )
+    text = re.sub(r"(?i)https?://", lambda match: "hxxps://" if match.group(0).lower() == "https://" else "hxxp://", text)
+    text = re.sub(r"(?i)\b(?!hxxps?)([a-z][a-z0-9+.-]*):(?=//|[a-z])", r"\1[:]", text)
+    return text.replace(".", "[.]")
+
+
+def markdown_cell(value: object) -> str:
+    text = normalize_display_text(value)
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    escaped = {char: "\\" + char for char in "\\`*_{}[]()#+-.!|"}
+    return text.translate(str.maketrans(escaped))
 
 
 def markdown_report(report: TriageReport) -> str:
@@ -409,7 +437,7 @@ def markdown_report(report: TriageReport) -> str:
         "",
         f"- **Verdict:** {verdict}",
         f"- **Risk score:** {report.score}/100",
-        f"- **Source:** `{report.source_file}`",
+        f"- **Source:** {markdown_cell(report.source_file)}",
         f"- **Generated (UTC):** {report.generated_at}",
         "",
         "## Message overview",
@@ -418,11 +446,11 @@ def markdown_report(report: TriageReport) -> str:
         "|---|---|",
     ]
     for key in ("from", "reply_to", "return_path", "to", "subject", "date", "message_id"):
-        value = str(report.message.get(key) or "Not present").replace("|", "\\|")
+        value = markdown_cell(report.message.get(key) or "Not present")
         lines.append(f"| {key.replace('_', ' ').title()} | {value} |")
     lines.extend(["", "## Authentication", "", "| Control | Result |", "|---|---|"])
     for mechanism, result in report.authentication.items():
-        lines.append(f"| {mechanism.upper()} | {result.upper()} |")
+        lines.append(f"| {markdown_cell(mechanism.upper())} | {markdown_cell(result.upper())} |")
     lines.extend(["", "## Indicators", ""])
     if not report.intelligence:
         lines.append("No URL or domain indicators were extracted.")
@@ -431,17 +459,20 @@ def markdown_report(report: TriageReport) -> str:
                       "|---|---|---:|---:|---:|"])
         for item in report.intelligence:
             lines.append(
-                f"| {item.kind} | `{defang(item.indicator)}` | {item.status} | "
-                f"{item.malicious} | {item.suspicious} |"
+                f"| {markdown_cell(item.kind)} | {markdown_cell(item.indicator)} | {markdown_cell(item.status)} | "
+                f"{markdown_cell(item.malicious)} | {markdown_cell(item.suspicious)} |"
             )
     lines.extend(["", "## Findings", ""])
     if report.findings:
         for finding in report.findings:
-            lines.append(f"- **{finding.severity.upper()} (+{finding.points}):** {finding.description}")
+            lines.append(
+                f"- **{markdown_cell(finding.severity.upper())} (+{finding.points}):** "
+                f"{markdown_cell(finding.description)}"
+            )
     else:
         lines.append("- No rule-based risk findings.")
     lines.extend(["", "## Recommended actions", ""])
-    lines.extend(f"- {action}" for action in report.recommended_actions)
+    lines.extend(f"- {markdown_cell(action)}" for action in report.recommended_actions)
     lines.extend([
         "",
         "> Analyst note: Reputation and heuristic results are decision support, not a substitute for contextual review.",
@@ -457,7 +488,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, help="Write the report to this path (stdout by default)")
     parser.add_argument("--api-key", help="VirusTotal API key (prefer VT_API_KEY environment variable)")
     parser.add_argument("--intel-file", type=Path, help="Offline JSON intelligence fixture for demos/tests")
-    parser.add_argument("--lookup", choices=("domains", "urls", "both"), default="both")
+    parser.add_argument("--lookup", choices=("domains", "urls", "both"), default="domains")
+    parser.add_argument("--online-enrichment", action="store_true",
+                        help="explicitly permit live VirusTotal requests for this run")
+    parser.add_argument("--allow-url-disclosure", action="store_true",
+                        help="explicitly permit sending complete extracted URLs to VirusTotal")
     parser.add_argument("--request-delay", type=float, default=0.0,
                         help="Seconds between VirusTotal requests (useful for rate limits)")
     return parser
@@ -475,8 +510,19 @@ def main(argv: list[str] | None = None) -> int:
         report = parse_email(args.email)
         if args.intel_file:
             client: Any | None = FixtureClient(args.intel_file)
-        elif api_key := (args.api_key or os.getenv("VT_API_KEY")):
-            client = VirusTotalClient(api_key, delay=max(0.0, args.request_delay))
+        elif args.online_enrichment:
+            api_key = args.api_key or os.getenv("VT_API_KEY")
+            if not api_key:
+                raise ValueError("--online-enrichment requires --api-key or VT_API_KEY")
+            if args.lookup in {"urls", "both"} and not args.allow_url_disclosure:
+                raise ValueError(
+                    "URL lookups disclose complete URLs; add --allow-url-disclosure to approve"
+                )
+            client = VirusTotalClient(
+                api_key,
+                delay=max(0.0, args.request_delay),
+                allow_url_disclosure=args.allow_url_disclosure,
+            )
         else:
             client = None
         enrich(report, client, args.lookup)
