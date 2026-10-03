@@ -39,7 +39,7 @@ Python 3.10+ is required. No third-party packages are needed.
 git clone https://github.com/jfrance167/automated-phishing-triage-toolkit.git
 cd automated-phishing-triage-toolkit
 
-# Parse and score locally (no network requests)
+# Parse and score locally (no network requests, even when VT_API_KEY is set)
 python phishing_triage.py samples/emails/credential-harvest.eml
 
 # Reproduce the sanitized demo with fixture intelligence
@@ -58,19 +58,24 @@ PowerShell:
 
 ```powershell
 $env:VT_API_KEY = "your-api-key"
-python phishing_triage.py .\message.eml --lookup both --request-delay 16 --output .\triage.md
+# Live domain-only lookups (domains are the default)
+python .\phishing_triage.py .\message.eml --online-enrichment --request-delay 16 --output .\triage.md
+# Full URL lookups disclose paths and query strings; approve them for this run
+python .\phishing_triage.py .\message.eml --online-enrichment --lookup urls --allow-url-disclosure --request-delay 16 --output .\triage.md
 ```
 
 Bash:
 
 ```bash
 export VT_API_KEY="your-api-key"
-python phishing_triage.py message.eml --lookup both --request-delay 16 --output triage.md
+python phishing_triage.py message.eml --online-enrichment --request-delay 16 --output triage.md
 ```
 
-The client uses VirusTotal API v3's domain endpoint and the URL endpoint with an unpadded URL-safe Base64 identifier. `--request-delay` is configurable because quota and rate limits vary by account. A 404 becomes `not_found`; other API/network failures are recorded as `error` and do not crash the entire investigation.
+Live lookups are disabled by default, even when `VT_API_KEY` or `--api-key` is present. `--online-enrichment` is required for every online request. Domain-only lookup is the default. Complete URL lookup additionally requires `--lookup urls` (or `both`) and the per-run `--allow-url-disclosure` flag because paths and query strings may contain credentials or victim-specific tokens.
 
-The tool only requests existing reports. It does **not** submit unknown URLs for scanning, because submission may disclose sensitive tokens, internal hostnames, or victim-specific data to a third party. Review your organization's data-handling policy before enriching real messages.
+The client uses VirusTotal API v3's domain endpoint and the URL endpoint with an unpadded URL-safe Base64 identifier. `--request-delay` is configurable because quota and rate limits vary by account. A 404 becomes `not_found`; other API/network failures are recorded as `error` and do not crash the entire investigation. `--online-enrichment` requires an API key through `--api-key` or `VT_API_KEY`. `--intel-file` always takes precedence and stays offline, even when online enrichment is requested.
+
+The tool only requests existing reports. It does **not** submit unknown URLs for scanning, because submission may disclose sensitive tokens, internal hostnames, or victim-specific data to a third party. Review your organization's data-handling policy before enabling lookups on real messages. Email inputs are read with a 25 MiB cap.
 
 ## Verdict model
 
@@ -115,10 +120,12 @@ python phishing_triage.py EMAIL
   [--api-key KEY]
   [--intel-file PATH]
   [--lookup domains|urls|both]
+  [--online-enrichment]
+  [--allow-url-disclosure]
   [--request-delay SECONDS]
 ```
 
-Prefer `VT_API_KEY` over `--api-key`, since command-line arguments may be captured in shell history or process listings. `--intel-file` takes precedence over the API key and is intended for demonstrations and tests.
+Prefer `VT_API_KEY` over `--api-key`, since command-line arguments may be captured in shell history or process listings. `--lookup` defaults to `domains`. `--intel-file` takes precedence over API keys and both online consent flags and is intended for demonstrations and tests.
 
 ## Test
 
@@ -144,3 +151,20 @@ GitHub Actions runs the suite on Python 3.10 and 3.13.
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+## Repository map
+
+```text
+automated-phishing-triage-toolkit/
+|-- .github/
+|-- .gitignore
+|-- LICENSE
+|-- PLAYBOOK.md
+|-- README.md
+|-- SECURITY.md
+|-- phishing_triage.py
+|-- samples/
+`-- tests/
+```
+
+Follow the setup and safety boundaries above before running or deploying any code.

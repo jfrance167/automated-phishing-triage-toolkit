@@ -2,9 +2,9 @@
 
 ## Safe handling
 
-Treat every submitted email and extracted indicator as untrusted. The parser does not render HTML, fetch message URLs, execute attachments, or submit unknown URLs for analysis. Markdown reports defang links, but JSON retains normalized raw indicators for automation; open JSON only in tools that do not auto-link or fetch content.
+Treat every submitted email and extracted indicator as untrusted. The parser does not render HTML, fetch message URLs, execute attachments, or submit unknown URLs for analysis. Email input is capped at 25 MiB. Markdown reports normalize control/format characters, escape Markdown syntax in untrusted fields, and defang web addresses. JSON retains raw normalized values for automation; open JSON only in tools that do not auto-link or fetch content.
 
-VirusTotal lookups disclose indicators to a third party. Do not enrich sensitive, internal, victim-specific, or token-bearing URLs unless organizational policy allows it. Use environment variables for API keys and never commit `.env` files or raw production messages.
+VirusTotal lookups disclose indicators to a third party. Live requests require `--online-enrichment` even if an API key is configured; URL lookups additionally require the per-run `--allow-url-disclosure` confirmation. Domain-only lookup is the default. `--intel-file` uses local fixtures and takes precedence over live-enrichment settings. Do not disclose sensitive, internal, victim-specific, or token-bearing URLs unless organizational policy allows it. Use environment variables for API keys and never commit `.env` files or raw production messages.
 
 ## Reporting a vulnerability
 
