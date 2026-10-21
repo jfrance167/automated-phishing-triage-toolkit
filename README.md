@@ -4,6 +4,26 @@ A dependency-free Python CLI that turns a raw email (`.eml`) into an analyst-fri
 
 > This is a portfolio and analyst-assistance tool, not an autonomous email security gateway. An analyst should validate every verdict in context.
 
+## Project overview
+
+| Focus | Evidence | Scope |
+| --- | --- | --- |
+| Parse suspicious email and explain the triage decision | [Synthetic report](samples/reports/credential-harvest.md) · [Analyst playbook](PLAYBOOK.md) | Local parsing; live reputation lookups require explicit opt-in |
+
+### Workflow
+
+```mermaid
+flowchart LR
+    E["Local .eml file"] --> P["Parse headers and links"]
+    P --> S["Explainable risk scoring"]
+    F["Offline intelligence fixture"] --> S
+    V["Optional VirusTotal reports"] -. "Explicit opt-in" .-> S
+    S --> R["Markdown or JSON report"]
+    R --> A["Analyst review"]
+```
+
+The offline fixture is fictional. The toolkit does not visit extracted links or execute attachments.
+
 ## Synthetic terminal example
 
 Run the included credential-harvest message with the offline, fictional intelligence fixture. This performs no network lookups. The excerpt below is from the real CLI output; message identifiers and indicators are omitted.
@@ -168,3 +188,4 @@ automated-phishing-triage-toolkit/
 ```
 
 Follow the setup and safety boundaries above before running or deploying any code.
+
