@@ -28,7 +28,8 @@ from typing import Any, Iterable
 
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
-AUTH_RE = re.compile(r"\b(spf|dkim|dmarc)\s*=\s*([a-z]+)", re.IGNORECASE)
+AUTH_RE = re.compile(r"^\s*(spf|dkim|dmarc)(?:/[0-9]+)?\s*=\s*([a-z]+)\b", re.IGNORECASE)
+AUTH_OUTCOMES = ("fail", "softfail", "permerror", "temperror", "neutral", "none", "pass")
 RECEIVED_SPF_RESULT_RE = re.compile(
     r"^\s*(pass|fail|softfail|neutral|none|temperror|permerror)\b", re.IGNORECASE
 )
@@ -79,6 +80,7 @@ class TriageReport:
     authentication: dict[str, str]
     urls: list[str]
     domains: list[str]
+    authentication_provenance: str = "unverified_header_claims"
     intelligence: list[IntelResult] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
     score: int = 0
@@ -184,23 +186,66 @@ def extract_urls(plain_parts: Iterable[str], html_parts: Iterable[str]) -> list[
     return sorted(urls)
 
 
-def parse_authentication(message: Any) -> dict[str, str]:
-    results = {"spf": "unknown", "dkim": "unknown", "dmarc": "unknown"}
-    # Authentication-Results carries per-mechanism results. Use its SPF
-    # result when present, falling back to Received-SPF's leading status token.
-    for value in message.get_all("Authentication-Results", []):
-        for mechanism, outcome in AUTH_RE.findall(str(value)):
-            mechanism = mechanism.lower()
-            if results[mechanism] == "unknown" or mechanism != "spf":
-                results[mechanism] = outcome.lower()
+def authentication_clauses(value: str) -> list[str]:
+    """Extract clauses while ignoring comments and quoted property values.
 
-    if results["spf"] == "unknown":
-        for value in message.get_all("Received-SPF", []):
-            match = RECEIVED_SPF_RESULT_RE.match(str(value))
-            if match:
-                results["spf"] = match.group(1).lower()
-                break
-    return results
+    This is conservative claim extraction, not receiver authentication or a
+    complete Authentication-Results validator. Semicolons inside comments or
+    quoted reasons must not introduce result clauses.
+    """
+    clauses: list[str] = []
+    current: list[str] = []
+    depth = 0
+    quoted = False
+    escaped = False
+    for char in value:
+        if escaped:
+            escaped = False
+            continue
+        if (depth or quoted) and char == "\\":
+            escaped = True
+        elif depth:
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+        elif quoted:
+            if char == '"':
+                quoted = False
+        elif char == "(":
+            depth = 1
+            current.append(" ")
+        elif char == '"':
+            quoted = True
+            current.append(" ")
+        elif char == ";":
+            clauses.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    clauses.append("".join(current))
+    return clauses
+
+
+def parse_authentication(message: Any) -> dict[str, str]:
+    """Summarize unverified claims; a pass can never erase an adverse claim."""
+    claims: dict[str, set[str]] = {name: set() for name in ("spf", "dkim", "dmarc")}
+    for value in message.get_all("Authentication-Results", []):
+        # The first clause identifies the purported authserv-id, which can
+        # itself be forged. It is deliberately not treated as a trust anchor.
+        for clause in authentication_clauses(str(value))[1:]:
+            match = AUTH_RE.match(clause)
+            if match and match.group(2).lower() in AUTH_OUTCOMES:
+                claims[match.group(1).lower()].add(match.group(2).lower())
+    for value in message.get_all("Received-SPF", []):
+        clauses = authentication_clauses(str(value))
+        match = RECEIVED_SPF_RESULT_RE.match(clauses[0])
+        if match:
+            claims["spf"].add(match.group(1).lower())
+    return {
+        name: next((outcome for outcome in AUTH_OUTCOMES if outcome in values), "unknown")
+        for name, values in claims.items()
+    }
 
 
 def parse_email(path: Path) -> TriageReport:
@@ -358,7 +403,7 @@ def analyze(report: TriageReport) -> None:
         if outcome in {"fail", "softfail", "permerror"}:
             points = 15 if mechanism == "dmarc" else 10
             add_finding(report, "high" if mechanism == "dmarc" else "medium", points,
-                        f"{mechanism.upper()} authentication result is {outcome}.")
+                        f"{mechanism.upper()} header claims {outcome} (unverified).")
 
     for url in report.urls:
         parsed = urllib.parse.urlsplit(url)
@@ -448,7 +493,9 @@ def markdown_report(report: TriageReport) -> str:
     for key in ("from", "reply_to", "return_path", "to", "subject", "date", "message_id"):
         value = markdown_cell(report.message.get(key) or "Not present")
         lines.append(f"| {key.replace('_', ' ').title()} | {value} |")
-    lines.extend(["", "## Authentication", "", "| Control | Result |", "|---|---|"])
+    lines.extend(["", "## Authentication header claims (unverified)", "",
+                  "Imported headers do not verify SPF, DKIM, or DMARC. Confirm with trusted receiver evidence.",
+                  "", "| Control | Claimed result |", "|---|---|"])
     for mechanism, result in report.authentication.items():
         lines.append(f"| {markdown_cell(mechanism.upper())} | {markdown_cell(result.upper())} |")
     lines.extend(["", "## Indicators", ""])
