@@ -37,7 +37,7 @@ Review the fields as a set rather than treating any single field as conclusive:
 
 - Compare the display name and `From` address with the claimed identity.
 - Investigate `Reply-To` and `Return-Path` differences. Marketing platforms and ticketing systems can create legitimate differences.
-- Review SPF, DKIM, and DMARC results and their alignment. Authentication can pass for attacker-controlled domains.
+- Treat the tool's SPF, DKIM, and DMARC fields as unverified header claims. Confirm them and alignment with trusted receiver evidence; senders can forge results and authserv-id. Authentication can also pass for attacker-controlled domains. Conflicting claims are conservatively aggregated and may be legitimate multi-hop or multiple-signature behavior.
 - Inspect the `Received` chain in the original message if routing details matter; this demo does not score that chain.
 - Determine whether the message was expected and whether the request matches normal business process.
 

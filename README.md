@@ -33,8 +33,8 @@ $ python phishing_triage.py samples/emails/credential-harvest.eml --intel-file s
 # Phishing Triage Summary
 - **Verdict:** MALICIOUS
 - **Risk score:** 100/100
-## Authentication
-| Control | Result |
+## Authentication header claims (unverified)
+| Control | Claimed result |
 |---|---|
 | SPF | FAIL |
 | DKIM | FAIL |
@@ -121,6 +121,10 @@ The score is capped at 100. Every point is shown as a finding in the report.
 | 60–100 | Malicious | Quarantine, scope, contain, and preserve |
 
 These thresholds are intentionally readable and conservative, but they are example policy. Tune them to your mail environment and risk appetite. Authentication alignment and message context can be more nuanced than simple domain equality.
+
+Authentication fields are **unverified header claims**, not independent SPF, DKIM, or DMARC validation. A sender can forge both the results and the authserv-id. Confirm authentication with a trusted receiving system that strips forged headers. The JSON field `authentication_provenance` records `unverified_header_claims`.
+
+For conservative scoring, repeated claims use the first present result in this order: `fail`, `softfail`, `permerror`, `temperror`, `neutral`, `none`, `pass`. All `Authentication-Results` headers and leading `Received-SPF` claims are considered; a pass never erases an adverse claim. This replaces the earlier SPF precedence behavior and can increase false positives for legitimate multi-hop messages or multiple DKIM signatures. Comments and quoted reasons do not create result clauses. Claim extraction is not a complete RFC header validator, and a low score does not establish safe delivery.
 
 ## Sample evidence
 

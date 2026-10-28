@@ -1,6 +1,6 @@
 {
   "source_file": "benign-newsletter.eml",
-  "generated_at": "2026-09-21T23:47:11+00:00",
+  "generated_at": "2026-10-28T01:46:51+00:00",
   "message": {
     "from": "Security Awareness <newsletter@training.example>",
     "reply_to": "Security Awareness <newsletter@training.example>",
@@ -21,6 +21,7 @@
   "domains": [
     "training.example"
   ],
+  "authentication_provenance": "unverified_header_claims",
   "intelligence": [
     {
       "indicator": "training.example",
@@ -31,18 +32,6 @@
       "harmless": 24,
       "undetected": 8,
       "reputation": 12,
-      "last_analysis_date": null,
-      "error": null
-    },
-    {
-      "indicator": "https://training.example/newsletters/september",
-      "kind": "url",
-      "status": "found",
-      "malicious": 0,
-      "suspicious": 0,
-      "harmless": 22,
-      "undetected": 10,
-      "reputation": 8,
       "last_analysis_date": null,
       "error": null
     }

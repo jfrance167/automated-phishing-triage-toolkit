@@ -8,4 +8,6 @@ VirusTotal lookups disclose indicators to a third party. Live requests require `
 
 ## Reporting a vulnerability
 
+Imported `Authentication-Results` and `Received-SPF` are unverified claims, including any authserv-id. The tool does not verify SPF, DKIM, DMARC, receiver provenance, or alignment. It conservatively preserves adverse claims across repeated headers and labels their provenance in Markdown and JSON. Verify against a trusted receiver that strips forged headers before acting; multiple legitimate signatures or hops can cause conflicting claims and false positives.
+
 Open a private security advisory in the GitHub repository. Include the affected version, reproduction steps, impact, and a suggested mitigation if available. Do not include real malicious payloads or personal data in a public issue.

@@ -58,14 +58,54 @@ class ParsingTests(unittest.TestCase):
                 message = BytesParser(policy=policy.default).parsebytes(raw)
                 self.assertEqual(triage.parse_authentication(message)["spf"], status)
 
-    def test_authentication_results_spf_takes_precedence_over_received_spf(self):
+    def test_conflicting_received_spf_failure_is_not_hidden_by_pass_claim(self):
         raw = (
             "Authentication-Results: mx.example; spf=pass smtp.mailfrom=example.org\n"
             "Received-SPF: fail (sender SPF unauthorized) identity=mailfrom; "
             "client-ip=192.0.2.1\n\n"
         ).encode()
         message = BytesParser(policy=policy.default).parsebytes(raw)
-        self.assertEqual(triage.parse_authentication(message)["spf"], "pass")
+        self.assertEqual(triage.parse_authentication(message)["spf"], "fail")
+
+    def test_pass_cannot_erase_failures_in_either_header_order(self):
+        fail = "mx.example; spf=fail; dkim=fail; dmarc=fail"
+        passed = "forged.example; spf=pass; dkim=pass; dmarc=pass"
+        for values in ((fail, passed), (passed, fail)):
+            with self.subTest(values=values):
+                raw = "".join(f"Authentication-Results: {value}\n" for value in values).encode() + b"\n"
+                message = BytesParser(policy=policy.default).parsebytes(raw)
+                self.assertEqual(triage.parse_authentication(message),
+                                 {"spf": "fail", "dkim": "fail", "dmarc": "fail"})
+
+    def test_repeated_clauses_and_received_spf_are_conservative(self):
+        raw = (b"Authentication-Results: mx.example; DKIM=pass; dkim=fail; dkim=pass;\n"
+               b" DMARC=fail; dmarc=pass\nReceived-SPF: pass\nReceived-SPF: fail\n\n")
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        self.assertEqual(triage.parse_authentication(message),
+                         {"spf": "fail", "dkim": "fail", "dmarc": "fail"})
+
+    def test_versioned_methods_cannot_be_hidden_by_unversioned_pass(self):
+        raw = (b"Authentication-Results: mx.example; spf/1=fail; dkim/1=fail; dmarc/1=fail\n"
+               b"Authentication-Results: forged.example; spf=pass; dkim=pass; dmarc=pass\n\n")
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        self.assertEqual(triage.parse_authentication(message),
+                         {"spf": "fail", "dkim": "fail", "dmarc": "fail"})
+
+    def test_comments_and_quoted_properties_do_not_inject_claims(self):
+        raw = (b'Authentication-Results: mx.example (nested (dkim=fail; dmarc=fail));\n'
+               b' dkim=pass reason="text; dkim=fail; dmarc=fail";\n'
+               b' dmarc=pass (text; dmarc=fail)\n\n')
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        self.assertEqual(triage.parse_authentication(message),
+                         {"spf": "unknown", "dkim": "pass", "dmarc": "pass"})
+
+    def test_missing_or_unknown_claims_stay_unknown(self):
+        for raw in (b"\n", b"Authentication-Results: mx.example; dkim=unrecognized\n\n",
+                    b"Authentication-Results: dkim=fail\n\n"):
+            with self.subTest(raw=raw):
+                message = BytesParser(policy=policy.default).parsebytes(raw)
+                self.assertEqual(triage.parse_authentication(message),
+                                 {"spf": "unknown", "dkim": "unknown", "dmarc": "unknown"})
 
     def test_extracts_headers_authentication_and_urls(self):
         report = triage.parse_email(ROOT / "samples/emails/credential-harvest.eml")
@@ -88,6 +128,17 @@ class ParsingTests(unittest.TestCase):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_forged_pass_header_cannot_lower_authentication_failure_score(self):
+        report = triage.parse_email(ROOT / "samples/emails/benign-newsletter.eml")
+        raw = (b"Authentication-Results: receiver.example; spf=fail; dkim=fail; dmarc=fail\n"
+               b"Authentication-Results: forged.example; dkim=pass; dmarc=pass\n\n")
+        report.authentication = triage.parse_authentication(BytesParser(policy=policy.default).parsebytes(raw))
+        triage.analyze(report)
+        self.assertEqual(report.score, 35)
+        self.assertEqual(report.verdict, "suspicious")
+        self.assertEqual(report.to_dict()["authentication_provenance"], "unverified_header_claims")
+        self.assertIn("header claims (unverified)", triage.markdown_report(report))
+
     def load(self, name):
         report = triage.parse_email(ROOT / f"samples/emails/{name}.eml")
         triage.enrich(report, triage.FixtureClient(ROOT / "samples/demo-intel.json"), "both")
@@ -108,6 +159,17 @@ class AnalysisTests(unittest.TestCase):
         report = self.load("benign-newsletter")
         self.assertEqual(report.verdict, "likely_benign")
         self.assertEqual(report.score, 0)
+
+    def test_cli_json_and_markdown_label_unverified_authentication(self):
+        sample = str(ROOT / "samples/emails/benign-newsletter.eml")
+        out = StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(triage.main([sample, "--format", "json"]), 0)
+        self.assertEqual(json.loads(out.getvalue())["authentication_provenance"], "unverified_header_claims")
+        out = StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(triage.main([sample]), 0)
+        self.assertIn("Confirm with trusted receiver evidence", out.getvalue())
 
     def test_markdown_defangs_indicators(self):
         rendered = triage.markdown_report(self.load("credential-harvest"))
