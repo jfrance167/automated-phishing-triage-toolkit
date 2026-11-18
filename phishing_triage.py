@@ -10,6 +10,7 @@ import ipaddress
 import json
 import os
 import re
+import stat
 import sys
 import time
 import unicodedata
@@ -554,6 +555,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: intelligence fixture not found: {args.intel_file}", file=sys.stderr)
         return 2
     try:
+        input_stats = {
+            path: path.stat()
+            for path in (args.email, args.intel_file)
+            if args.output is not None and path is not None
+        }
         report = parse_email(args.email)
         if args.intel_file:
             client: Any | None = FixtureClient(args.intel_file)
@@ -581,7 +587,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(rendered, encoding="utf-8")
+            # Check the opened file, including aliases, before allowing truncation.
+            with open(
+                args.output, "w", encoding="utf-8",
+                opener=lambda path, flags: os.open(path, flags & ~os.O_TRUNC),
+            ) as output:
+                output_stat = os.fstat(output.fileno())
+                for path, input_stat in input_stats.items():
+                    if os.path.samestat(output_stat, input_stat):
+                        raise ValueError(f"--output refers to an input file: {path}")
+                if stat.S_ISREG(output_stat.st_mode):
+                    output.truncate(0)
+                output.write(rendered)
         else:
             print(rendered, end="")
         return 0
