@@ -3,7 +3,7 @@ import os
 import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import patch
 from email import policy
 from email.parser import BytesParser
@@ -259,6 +259,72 @@ class AnalysisTests(unittest.TestCase):
         client = triage.VirusTotalClient("placeholder")
         with self.assertRaisesRegex(ValueError, "not approved"):
             client.lookup_url("https://example.org/private?token=placeholder")
+
+
+class OutputTests(unittest.TestCase):
+    def setUp(self):
+        scratch = TemporaryDirectory(dir=ROOT / "tests")
+        self.addCleanup(scratch.cleanup)
+        self.directory = Path(scratch.name)
+        self.email = self.directory / "original.eml"
+        self.email_bytes = b"From: Analyst <analyst@example.org>\nSubject: Test message\n\nHello.\n"
+        self.email.write_bytes(self.email_bytes)
+        self.fixture = self.directory / "intel.json"
+        self.fixture_bytes = b"{}\n"
+        self.fixture.write_bytes(self.fixture_bytes)
+
+    def run_cli(self, output):
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            status = triage.main([
+                str(self.email), "--intel-file", str(self.fixture),
+                "--format", "json", "--output", str(output),
+            ])
+        return status, stderr.getvalue()
+
+    def assert_output_rejected(self, output):
+        self.email.write_bytes(self.email_bytes)
+        self.fixture.write_bytes(self.fixture_bytes)
+        status, stderr = self.run_cli(output)
+        self.assertEqual(status, 1)
+        self.assertIn("--output refers to an input file", stderr)
+        self.assertEqual(self.email.read_bytes(), self.email_bytes)
+        self.assertEqual(self.fixture.read_bytes(), self.fixture_bytes)
+
+    def test_rejects_input_files(self):
+        for source in (self.email, self.fixture):
+            with self.subTest(output=source.name):
+                self.assert_output_rejected(source)
+
+    def test_rejects_aliases_through_parent_directory(self):
+        nested = self.directory / "nested"
+        nested.mkdir()
+        for source in (self.email, self.fixture):
+            with self.subTest(output=source.name):
+                self.assert_output_rejected(nested / ".." / source.name)
+
+    def test_rejects_hard_links_to_input_files(self):
+        for source in (self.email, self.fixture):
+            alias = source.with_suffix(".alias")
+            try:
+                alias.hardlink_to(source)
+            except PermissionError:
+                if os.name != "nt":
+                    raise
+                self.skipTest("Windows did not permit creating hard links")
+            with self.subTest(output=alias.name):
+                self.assert_output_rejected(alias)
+
+    def test_writes_new_and_existing_separate_reports(self):
+        output = self.directory / "reports" / "report.json"
+        self.assertEqual(self.run_cli(output), (0, ""))
+        self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["message"]["subject"], "Test message")
+
+        output.write_bytes(b"stale content" * 1024)
+        self.assertEqual(self.run_cli(output), (0, ""))
+        self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["message"]["subject"], "Test message")
+        self.assertEqual(self.email.read_bytes(), self.email_bytes)
+        self.assertEqual(self.fixture.read_bytes(), self.fixture_bytes)
 
 
 if __name__ == "__main__":
